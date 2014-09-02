@@ -5,6 +5,7 @@ import unittest
 from string import letters
 
 # LIBRARIES
+from django.core.cache import cache
 from django.core.files.uploadhandler import StopFutureHandlers
 from django.core.cache import cache
 from django.db import IntegrityError, models
@@ -34,7 +35,7 @@ except ImportError:
     webtest = NotImplemented
 
 class TestUser(models.Model):
-    username = models.CharField(max_length=32)
+    username = models.CharField(max_length=32, unique=True)
     email = models.EmailField()
     last_login = models.DateField(auto_now_add=True)
     field2 = models.CharField(max_length=32)
@@ -803,3 +804,33 @@ class ComputedFieldTests(TestCase):
         instance = ComputedFieldModel(int_field=1, char_field="test")
         instance.save()
         self.assertEqual(instance.test_field, "1_test")
+
+
+class CachingTest(TestCase):
+    """ Djangae already goes to a direct Get() if it detects the query is using pk's.
+        Attemt to fetch from cache is more useful for unique attribute's.
+    """
+    def setUp(self):
+        self.u1 = TestUser.objects.create(username="A", email="a@example.com")
+        self.u2 = TestUser.objects.create(username="B", email="b@example.com")
+        self._realrun = datastore.Query.Run
+        def _dummy(*a, **kw):
+            raise AssertionError("This shouldn't have been ran.")
+        self.dummy = _dummy
+
+    def test_querying_unique(self):
+        datastore.Query.Run = self.dummy
+        # The real query shouldn't run as results are fetched from the cache
+        self.assertEqual("a@example.com", TestUser.objects.get(username="A").email)
+
+        cache.clear()
+        # When there's nothing in the cache we fallback to the real query
+        self.assertRaises(AssertionError, TestUser.objects.get, username="A")
+
+        datastore.Query.Run = self._realrun
+        self.assertEqual("a@example.com", TestUser.objects.get(username="A").email)
+
+    def tearDown(self):
+        datastore.Query.Run = self._realrun
+
+

@@ -30,6 +30,7 @@ from djangae.db.utils import (
 from djangae.indexing import special_indexes_for_column, REQUIRES_SPECIAL_INDEXES, add_special_index
 from djangae.utils import on_production, in_testing
 from djangae.db import constraints, utils
+from djangae.db.unique_utils import unique_identifiers_from_entity
 
 DJANGAE_LOG = logging.getLogger("djangae")
 
@@ -154,6 +155,24 @@ class QueryByKeys(object):
         return ( x for x in results if utils.entity_matches_query(x, self.query) )
 
 
+class QueryByCache(object):
+    def __init__(self, model, query, unique_filters, ordering):
+        self.model = model
+        self.query = query
+        self.unique_filters = unique_filters
+        self.ordering = ordering
+
+    def Run(self, limit, offset):
+        identifiers = unique_identifiers_from_entity(self.model, self.unique_filters, ignore_pk=True)
+        cached = cache.get(identifiers[0])
+        if cached:
+            if utils.entity_matches_query(cached, self.query):
+                return iter([cached])
+            else:
+                return iter([])
+        return self.query.Order(*self.ordering).Run()
+
+
 class SelectCommand(object):
     def __init__(self, connection, query, keys_only=False, all_fields=False):
 
@@ -228,6 +247,7 @@ class SelectCommand(object):
         self.keys_only = False #FIXME: This should be used where possible
 
         self.exact_pk = None
+        self.unique_filters = {}
         self.included_pks = []
         self.excluded_pks = set()
 
@@ -372,6 +392,9 @@ class SelectCommand(object):
                             col = constraint.col
                             result.append((col, op, value))
                     else:
+                        if constraint.field.unique and not constraint.field.primary_key:
+                            if op == "exact" and value is not None:
+                                self.unique_filters[constraint.col] = value
                         col = constraint.col
                         result.append((col, op, value))
             else:
@@ -538,8 +561,12 @@ class SelectCommand(object):
         elif self.included_pks:
             query = QueryByKeys(query, self.included_pks, ordering)
 
+        elif self.unique_filters:
+            query = QueryByCache(self.model, query, self.unique_filters, ordering)
+
         elif ordering:
             query.Order(*ordering)
+
         return query
 
     def _do_fetch(self):
