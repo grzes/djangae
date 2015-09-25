@@ -552,47 +552,6 @@ class Query(object):
 
             self.polymodel_filter_added = True
 
-    def serialize(self):
-        """
-            The idea behind this function is to provide a way to serialize this
-            query to a string which can be compared to another query. Pickle won't
-            work as some of the values etc. might not be picklable.
-
-            FIXME: This function is incomplete! Not all necessary members are serialized
-        """
-        if not self.is_normalized:
-            raise ValueError("You cannot serialize queries unless they are normalized")
-
-        result = {}
-        result["kind"] = self.kind
-        result["table"] = self.model._meta.db_table
-        result["concrete_table"] = self.concrete_model._meta.db_table
-        result["columns"] = self.columns
-        result["projection_possible"] = self.projection_possible
-        result["init_list"] = self.init_list
-        result["distinct"] = self.distinct
-        result["order_by"] = self.order_by
-        result["low_mark"] = self.low_mark
-        result["high_mark"] = self.high_mark
-        result["excluded_pks"] = list(self.excluded_pks)
-
-        where = []
-
-        if self.where:
-            assert self.where.connector == 'OR'
-            for node in self.where.children:
-                assert node.connector == 'AND'
-
-                query = {}
-                for lookup in node.children:
-                    query[''.join([lookup.column, lookup.operator])] = str(lookup.value)
-
-                where.append(query)
-
-        result["where"] = where
-
-        return json.dumps(result)
-
 
 def _extract_ordering_from_query_17(query):
     from djangae.db.backends.appengine.commands import log_once

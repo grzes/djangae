@@ -693,35 +693,39 @@ class SelectCommand(object):
 
             self.results = wrap_result_with_functor(self.results, deduper_factory())
 
-
     def execute(self):
         self.gae_query = self._build_query()
         self._fetch_results(self.gae_query)
 
     def __unicode__(self):
-        try:
-            qry = json.loads(self.query.serialize())
+        q = self.query
 
-            result = u" ".join([
-                qry["kind"],
-                ", ".join(qry["columns"] if qry["projection_possible"] and qry["columns"] else ["*"]),
-                "FROM",
-                qry["concrete_table"]
-            ])
+        result = [
+            q.kind,
+            u", ".join(q.columns) if q.projection_possible and q.columns else "*",
+            u"FROM",
+            q.concrete_model._meta.db_table,
+        ]
 
-            if qry["where"]:
-                result += " " + u" ".join([
-                    "WHERE",
-                    " OR ".join([
-                        " AND ".join( [ "{} {}".format(k, v) for k, v in x.iteritems() ])
-                        for x in qry["where"]
+        if (q.is_normalized and q.where and all(n.connector == 'AND' for n in q.where.children)):
+            # We ensure all top level nodes are AND connected themselves. The `is_normalized`
+            # only verifies they're leaf nodes. We should either move this check into is_normalized
+            # or figure out here how to serialize other leaf nodes.
+            where = []
+            for node in q.where.children:
+                query = []
+                if node.connector == 'AND':
+                    query = " AND ".join([
+                        "{}{} {}".format(lookup.column, lookup.operator, lookup.value)
+                        for lookup in node.children
                     ])
-                ])
-            return result
-        except:
-            # We never want this to cause things to die
-            logging.exception("Unable to translate query to string")
-            return "QUERY TRANSLATION ERROR"
+                    where.append(query)
+
+            result.extend([
+                "WHERE",
+                " OR ".join(where)
+            ])
+        return u" ".join(result)
 
     def __repr__(self):
         return self.__unicode__().encode("utf-8")
