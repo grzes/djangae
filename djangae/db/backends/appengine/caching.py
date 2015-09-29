@@ -1,5 +1,6 @@
 import logging
 import threading
+from itertools import chain
 
 from google.appengine.api import datastore
 
@@ -60,18 +61,21 @@ def _get_cache_key_and_model_from_datastore_key(key):
     return (cache_key, model)
 
 
-def _remove_entity_from_memcache_by_key(key):
+def _remove_entity_from_memcache_by_key(keys):
     """
         Note, if the key of the entity got evicted from the cache, it's possible that stale cache
         entries would be left behind. Remember if you need pure atomicity then use disable_cache() or a
         transaction.
     """
+    keys_models = dict(_get_cache_key_and_model_from_datastore_key(key) for key in keys)
 
-    cache_key, model = _get_cache_key_and_model_from_datastore_key(key)
-    entity = cache.get(cache_key)
+    entities = cache.get_many(keys_models.keys())
 
-    if entity:
-        identifiers = unique_identifiers_from_entity(model, entity)
+    identifiers = []
+    for k, e in entities.items():
+        identifiers.extend(unique_identifiers_from_entity(keys_models[k], e))
+
+    if identifiers:
         cache.delete_many(identifiers)
 
 
@@ -99,7 +103,7 @@ def add_entity_to_cache(model, entity, situation, skip_memcache=False):
     if situation in (CachingSituation.DATASTORE_PUT, CachingSituation.DATASTORE_GET_PUT) and datastore.IsInTransaction():
         # We have to wipe the entity from memcache
         if entity.key():
-            _remove_entity_from_memcache_by_key(entity.key())
+            _remove_entity_from_memcache_by_key([entity.key()])
 
     get_context().stack.top.cache_entity(identifiers, entity, situation)
 
@@ -117,19 +121,21 @@ def remove_entity_from_cache(entity):
     remove_entity_from_cache_by_key(key)
 
 
-def remove_entity_from_cache_by_key(key, memcache_only=False):
+def remove_entity_from_cache_by_key(keys, memcache_only=False):
     """
         Removes an entity from all caches (both context and memcache)
         or just memcache if specified
     """
-    ensure_context()
+    if not isinstance(keys, (list, tuple)):
+        keys = [keys]
 
+    ensure_context()
     if not memcache_only:
-        for identifier in _context.stack.top.reverse_cache.get(key, []):
+        for identifier in chain.from_iterable((_context.stack.top.reverse_cache.get(k, []) for k in keys)):
             if identifier in _context.stack.top.cache:
                 del _context.stack.top.cache[identifier]
 
-    _remove_entity_from_memcache_by_key(key)
+    _remove_entity_from_memcache_by_key(keys)
 
 
 def get_from_cache_by_key(key):
