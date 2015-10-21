@@ -564,6 +564,19 @@ class BackendTests(TestCase):
         obj = TestFruit.objects.get(pk=obj.pk)
         self.assertFalse(obj.is_mouldy)
 
+    def test_bulk_update(self):
+        obj1 = TestFruit.objects.create(name='banana', color='yellow', is_mouldy=False)
+        obj2 = TestFruit.objects.create(name='orange', color='orange', is_mouldy=False)
+        obj3 = TestFruit.objects.create(name='apple', color='yellow', is_mouldy=False)
+
+        queryset = TestFruit.objects.filter(color='yellow')
+        queryset.update(is_mouldy=True)
+
+        self.assertTrue(TestFruit.objects.get(pk=obj1.pk).is_mouldy)
+        self.assertTrue(TestFruit.objects.get(pk=obj3.pk).is_mouldy)
+
+        self.assertFalse(TestFruit.objects.get(pk=obj2.pk).is_mouldy)
+
 
 class ModelFormsetTest(TestCase):
     def test_reproduce_index_error(self):

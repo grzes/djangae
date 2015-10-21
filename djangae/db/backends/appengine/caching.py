@@ -90,6 +90,7 @@ def _get_entity_from_memcache_by_key(key):
 
 
 def add_entity_to_cache(model, entity, situation, skip_memcache=False):
+    return
     ensure_context()
 
     identifiers = unique_identifiers_from_entity(model, entity)
